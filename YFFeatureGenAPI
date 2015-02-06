@@ -19,7 +19,7 @@ import gensim
 # 第三方库
 from baidunlpctool import miningtool
 from word2vectortool import word2vectortool
-import tfidftool
+import vectotool
 
 feature_select_function = ['feature_select_wordseg', 'filter_stopword', 'filter_negword', 'filter_posiword' ]
 feature_numeralize_function = ['feature_numeralize_word2vec', 'feature_numeralize_tfidf', 'feature_numeralize_countV']
@@ -133,7 +133,7 @@ def feature_numeralize_tfidf(word_feature_list, encoding = 'unicode'):
     得到特征列表中特征的tfidf向量
     """
 
-    factory = tfidftool.TFIDF_FACTORY
+    factory = vectortool.TFIDF_FACTORY
     tfidf_lib = factory.create_tfidfvector()
 
     if not word_feature_list:
@@ -171,7 +171,7 @@ def feature_numeralize_countV_fdocs(doc, encoding = 'unicode', docs=[], normlize
         word_feature_list = feature_select_wordseg(text)
         return word_feature_list
 
-    factory = tfidftool.COUNTVECTOR_FACTORY
+    factory = vectortool.COUNTVECTOR_FACTORY
     countvector_lib = factory.create_countvector_fromdocs(tokenize, docs)
     word_feature_count = countvector_lib.countvector_value(doc,normlized)
 
@@ -204,7 +204,7 @@ def feature_numeralize_countV_vocab(doc, encoding = 'unicode', user_vocabulary= 
         #使用切词来进行词分割
         word_feature_list = feature_select_wordseg(text)
         return word_feature_list   
-    factory = tfidftool.COUNTVECTOR_FACTORY
+    factory = vectortool.COUNTVECTOR_FACTORY
     countvector_lib = factory.create_countvector_fromvocabulary(tokenize, user_vocabulary)
     word_feature_count = word_feature_count = countvector_lib.countvector_value(doc,normlized)
 
@@ -232,7 +232,7 @@ def feature_numeralize_topicmodel_fdocs(doc, encoding = 'unicode', docs=[], num_
         return word_feature_list   
 
 
-    factory = tfidftool.TOPICMODEL_FACTORY
+    factory = vectortool.TOPICMODEL_FACTORY
     topicmodel_lib = factory.create_topicmodel_fromdocs(tokenize, docs, num_topics)
     topic_weight = topicmodel_lib.topic_model_value(doc)
     return topic_weight
@@ -251,7 +251,7 @@ def feature_numeralize_topicmodel_fmodelfile(doc, topic_model_file):
         word_feature_list = feature_select_wordseg(text)
         return word_feature_list 
 
-    factory = tfidftool.TOPICMODEL_FACTORY
+    factory = vectortool.TOPICMODEL_FACTORY
     topicmodel_lib = factory.create_topicmodel_frommodelfile(tokenize, topic_model_file) 
     topic_weight = topicmodel_lib.topic_model_value(doc)
     return topic_weight
