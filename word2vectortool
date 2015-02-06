@@ -1,0 +1,78 @@
+#!/bin/env python
+# -*- coding: UTF-8 -*-
+
+"""
+@author Yang Fan (17767828@qq.com)
+@brief
+    实现word2vec模型的加载和使用模型进行句子到向量的转化
+"""
+import sys
+import os
+import ctypes
+
+class SoBase(object):
+    def load_lib_file(self, file_path):
+        if os.path.isfile(file_path):
+            return ctypes.cdll.LoadLibrary(file_path)
+        else:
+            raise Exception('No such file: %s' % file_path)
+
+    def run(self, input_string):
+        pass
+
+class Word2Vector(SoBase):
+    def __init__(
+            self,
+            so_path,
+            model_path,
+            dict_path,
+            is_normalized=1):
+        self.so = self.load_lib_file(so_path)
+        self.so.LoadModel.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+        self.so.LoadModel.restype = ctypes.c_void_p
+        self.so.GetVector.argtypes = [ctypes.c_char_p, ctypes.c_void_p]
+        self.so.GetVector.restype = ctypes.c_void_p
+        self.so.Word2VecUtilFree.argtypes = [ctypes.c_void_p]
+        self.so.FreePchar.argtypes = [ctypes.c_void_p]
+        self.default_model = self.so.LoadModel(model_path, dict_path, is_normalized)
+
+    def run(self, input_string):
+        input_string = input_string.encode("utf8")
+        ret = self.so.GetVector(input_string, self.default_model)
+        ret = ctypes.cast(ret, ctypes.c_char_p)
+        s1 = ret.value
+        self.so.FreePchar(ret)
+        return s1
+
+    def __del__(self):
+        self.so.Word2VecUtilFree(self.default_model)
+
+
+
+class Word2VecFactory(object):
+    """shared object 工厂类,用于创建so的实例"""
+    def __init__(self):
+        self.__word_vector = None
+
+    def create_word2vector(self):
+
+        """
+        创建单态模式的word vector
+        @param so_path:
+            so 文件存放相对路径
+        @param model_path:
+            model 文件路径
+        @param dict_path:
+            dict 文件路径
+        """
+        if self.__word_vector is None:
+            path = sys.path[0]
+            so_path = '%s/word2vectortool/lib_word2vector.so' % (path)
+            model_path = '%s/word2vectortool/wordvector.model' % (path)
+            dict_path = '%s/word2vectortool/word_index.utf8' % (path)
+            #print >>sys.stderr, so_path, model_path, dict_path
+            self.__word_vector = Word2Vector(so_path, model_path, dict_path)
+        return self.__word_vector
+
+# 建议都使用SINGLETON_FACTORY来创建对应的so实例，否则单态模式不生效
+SINGLETON_FACTORY = Word2VecFactory()
