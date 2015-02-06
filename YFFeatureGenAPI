@@ -1,0 +1,394 @@
+#!/usr/local/bin/python
+# -*- coding:utf8 -*-
+
+"""Copyright (c) 2014 Baidu.com, Inc. All Rights Reserved
+    @author: Fan Yang(17767828@qq.com)
+    @brief 定义了一系列的文本特征抽取API，便于将文本转成特定特征和特征值
+
+"""
+# python通用库
+import os
+import sys
+
+reload(sys)
+sys.setdefaultencoding('utf-8')
+
+# 机器学习库
+import gensim
+
+# 第三方库
+from baidunlpctool import miningtool
+from word2vectortool import word2vectortool
+import tfidftool
+
+feature_select_function = ['feature_select_wordseg', 'filter_stopword', 'filter_negword', 'filter_posiword' ]
+feature_numeralize_function = ['feature_numeralize_word2vec', 'feature_numeralize_tfidf', 'feature_numeralize_countV']
+
+
+def feature_select_wordseg(doc, encoding = 'unicode', wordseg_type = 'segment'):
+    """
+    生成doc切词的词特征
+    input:
+        --doc = "这本书是写如何化妆的。"
+        --wordseg_type = basic/segment 
+        --encoding = doc文本的编码 如果不指定，默认是unicode ，如果需要处理的doc是 utf-8或者gbk需要指定
+    return 
+        --word_feature_list  
+            type:list
+            eg. ["这","本","书","是","写","如何","化妆","的","。"]
+    """
+
+    factory = miningtool.BAIDUNLPLIB_FACTORY
+    baidu_nlp = factory.create_baidunlpfactory()
+    wordseg_ret = baidu_nlp.run_wordseg(doc, encoding, wordseg_type) # wordseg_type = basic/segment ,encoding = gbk/utf-8/unicode
+    word_feature_list = []
+    if not wordseg_ret:
+        return None
+    word_feature_list  = wordseg_ret.split(' ')
+    if len(word_feature_list) <1:
+        return None
+    return word_feature_list
+
+def filter_stopword(word_feature_list, encoding='unicode', stop_word_list=[]):
+    """停用词过滤的方法"""
+    default_stop_word_list = [u'，', u'>', u'》', u'《', u'。', u'\"',u'、', u'【' ,
+                              u'】', u'【', u'？', u'”',u'“', u'……', u'_', u'?', u'!', u'！',
+                              u'{', u'}',u'~',u'|', u'(', u')',u'（', u'）',u'；',u',']
+
+    if not stop_word_list:
+        stop_word_list = default_stop_word_list
+    if encoding == 'utf-8':
+        data = data.decode('utf-8')
+    if encoding == 'gbk':
+        data = data.decode('gbk')
+
+    new_word_feature_list = filter(lambda ch: ch not in stop_word_list, word_feature_list)
+
+    return new_word_feature_list
+
+def filter_negword(word_feature_list, encoding='unicode', neg_word_list=[]):
+    """
+    使用消极词表过滤,仅仅留下不在消极词表中的词
+    """
+    default_neg_word_list = [u'消极',]
+
+    if not neg_word_list:
+        neg_word_list = default_neg_word_list
+    if encoding == 'utf-8':
+        data = data.decode('utf-8')
+    if encoding == 'gbk':
+        data = data.decode('gbk')
+
+    new_word_feature_list = filter(lambda ch: ch not in neg_word_list, word_feature_list)
+
+    return new_word_feature_list    
+
+def filter_posiword(word_feature_list, encoding='unicode', posi_word_list=[]):
+    """
+    使用积极词表过滤,仅仅留下在积极词表中的词
+    """
+    default_posi_word_list = [u'美容', u'减肥', u'瘦身', u'美白', u'攻略']
+
+    if not posi_word_list:
+        posi_word_list = default_posi_word_list
+    if encoding == 'utf-8':
+        data = data.decode('utf-8')
+    if encoding == 'gbk':
+        data = data.decode('gbk')
+
+    new_word_feature_list = filter(lambda ch: ch in posi_word_list, word_feature_list)
+
+    return new_word_feature_list 
+
+def feature_numeralize_word2vec(word_feature_list, encoding = 'unicode'):
+    """
+    生成doc空格分割的切词的词向量
+    input :
+        --word_feature_list = ["这","本","书","是","写","如何","化妆","的"," 。"]
+        --encoding = doc文本的编码，如果不指定，默认是unicode ，如果需要处理的doc是 utf-8或者gbk需要指定
+
+    return
+        --word_vector = ['1:-0.042286', '2:-0.088757',****]
+        结果是正则化的256维向量[-1,1]
+        
+    """
+    factory = word2vectortool.SINGLETON_FACTORY
+    word2vec_lib = factory.create_word2vector()
+
+    if not word_feature_list:
+        return None
+    if encoding == 'unicode':
+        doc_unicode_str = ' '.join(word_feature_list)
+    else:
+        doc_unicode_str = ' '.join(word_feature_list).decode(encoding)# word2vec_lib使用的doc是unicode
+    ret = word2vec_lib.run(doc_unicode_str)
+    status, vec_str = ret.split('\t')  #status = -1 失败 =0 成功
+    if status == '-1':
+        return None
+    word_vector = [vec.decode('utf-8') for vec in vec_str.split(' ')]
+    return word_vector
+
+def feature_numeralize_tfidf(word_feature_list, encoding = 'unicode'):
+    """
+    得到特征列表中特征的tfidf向量
+    """
+
+    factory = tfidftool.TFIDF_FACTORY
+    tfidf_lib = factory.create_tfidfvector()
+
+    if not word_feature_list:
+        return None
+    if encoding != 'unicode':
+        word_feature_list = [i.decode(encoding) for i in word_feature_list]
+    tfidf_feature = {}
+    tfidf_feature = tfidf_lib.tfidf_value(word_feature_list)
+    if not tfidf_feature:
+        return None
+    return tfidf_feature
+
+def feature_numeralize_countV_fdocs(doc, encoding = 'unicode', docs=[], normlized = 1):
+    """
+    通过自定义语料创建词典，并生成句子在词典中的 切词特征词的词频向量
+
+    其中特征词典可以来自一个自定义的词典文件，也可以来自一个文本语料
+    主要是 CountVector 类的调用，详见 CountVector 
+    input:
+        --doc = "这本书是写如何化妆的。"
+        --encoding = doc文本的编码 如果不指定，默认是unicode ，如果需要处理的doc是 utf-8或者gbk需要指定
+        --docs = [u'这是一幅漫画画满了卡通人物风景画和人物画的结合的画卷',u'魅力指数是指美丽程度的评价']
+    return 
+        --word_feature_count  
+            type:dict
+            eg. ["0":5,"4":3] key是特征词的id value是统计数量
+    """
+    if encoding != 'unicode':
+        doc = doc.decode(encoding)
+    if not docs:
+        # default docs
+        docs = [u'默认构建词典的文档',u'默认名词文档']
+    def tokenize(text):
+        #使用切词来进行词分割
+        word_feature_list = feature_select_wordseg(text)
+        return word_feature_list
+
+    factory = tfidftool.COUNTVECTOR_FACTORY
+    countvector_lib = factory.create_countvector_fromdocs(tokenize, docs)
+    word_feature_count = countvector_lib.countvector_value(doc,normlized)
+
+    print >>sys.stderr,"vocabulary:",''.join(["%s:%s|" %(k,v) for k,v in countvector_lib.get_vocabulary().iteritems()])
+    
+    return word_feature_count
+
+def feature_numeralize_countV_vocab(doc, encoding = 'unicode', user_vocabulary= {}, normlized = 1):
+    """
+    通过自定义语料创建词典，并生成句子在词典中的 切词特征词的词频向量
+    其中特征词典来自一个自定义的词典文件
+    主要是 CountVector 类的调用，详见 CountVector 
+    input:
+        --doc = "这本书是写如何化妆的。"
+        --encoding = doc文本的编码 如果不指定，默认是unicode ，如果需要处理的doc是 utf-8或者gbk需要指定
+        --user_vocabulary = {u'一':0,u'漫画':1}
+    return 
+        --word_feature_count  
+            type:dict
+            eg. ["0":5,"4":3] key是特征词的id value是统计数量
+            if normlized = 1 value是归一化后的数量
+
+    """
+    if encoding != 'unicode':
+        doc = doc.decode(encoding)
+    if not user_vocabulary:
+        user_vocabulary = {u'一':0,u'漫画':1}
+
+    def tokenize(text):
+        #使用切词来进行词分割
+        word_feature_list = feature_select_wordseg(text)
+        return word_feature_list   
+    factory = tfidftool.COUNTVECTOR_FACTORY
+    countvector_lib = factory.create_countvector_fromvocabulary(tokenize, user_vocabulary)
+    word_feature_count = word_feature_count = countvector_lib.countvector_value(doc,normlized)
+
+    print >>sys.stderr,"vocabulary:",''.join(["%s:%s|" %(k,v) for k,v in countvector_lib.get_vocabulary().iteritems()])
+    
+    return word_feature_count
+    
+def feature_numeralize_topicmodel_fdocs(doc, encoding = 'unicode', docs=[], num_topics=5):
+    """
+    通过自定义语料训练主题模型，
+    对于给定的doc给出主题id:weight 的权重
+    input:
+        --num_topics = 自定义多少个主题
+        --encoding = doc文本的编码 如果不指定，默认是unicode ，如果需要处理的doc是 utf-8或者gbk需要指定
+        --docs = [u'这是一幅漫画画满了卡通人物风景画和人物画的结合的画卷',u'魅力指数是指美丽程度的评价']
+    """
+    if encoding != 'unicode':
+        doc = doc.decode(encoding)
+    if not docs:
+        docs = [u'默认语料',u'默认名词文档']
+
+    def tokenize(text):
+        #使用切词来进行词分割
+        word_feature_list = feature_select_wordseg(text)
+        return word_feature_list   
+
+
+    factory = tfidftool.TOPICMODEL_FACTORY
+    topicmodel_lib = factory.create_topicmodel_fromdocs(tokenize, docs, num_topics)
+    topic_weight = topicmodel_lib.topic_model_value(doc)
+    return topic_weight
+
+def feature_numeralize_topicmodel_fmodelfile(doc, topic_model_file):
+    """
+    加载现有的模型
+    对于给定的doc给出主题id:weight 的权重
+    input:
+        --topic_model_file = 目前模型是只能使用gensim ldamodel生成的主题模型
+        --encoding = doc文本的编码 如果不指定，默认是unicode ，如果需要处理的doc是 utf-8或者gbk需要指定
+        --docs = [u'这是一幅漫画画满了卡通人物风景画和人物画的结合的画卷',u'魅力指数是指美丽程度的评价']
+    """
+    def tokenize(text):
+        #使用切词来进行词分割
+        word_feature_list = feature_select_wordseg(text)
+        return word_feature_list 
+
+    factory = tfidftool.TOPICMODEL_FACTORY
+    topicmodel_lib = factory.create_topicmodel_frommodelfile(tokenize, topic_model_file) 
+    topic_weight = topicmodel_lib.topic_model_value(doc)
+    return topic_weight
+
+
+
+
+def test_feature_select_wordseg():
+    doc = u"这本书是写如何化妆的。".encode('utf-8') # 一般来自文件的文本都是utf-8或者gbk的
+    feature_text = [] 
+    feature_text = feature_select_wordseg(doc, 'utf-8')
+    print >>sys.stderr, "feature_text=%s" % (" ".join(feature_text))
+
+    doc = u"今天的课题是空白。".encode('utf-8') # 一般来自文件的文本都是utf-8或者gbk的
+    feature_text = [] 
+    feature_text = feature_select_wordseg(doc, 'utf-8')
+    print >>sys.stderr, "feature_text=%s" % (" ".join(feature_text))
+
+def test_filter_stopword():
+    doc = [u'这', u'是', u'一本', u'书',u'。'] 
+    new_feature = filter_stopword(doc)
+    print >>sys.stderr, "new_feature=%s" % (" ".join(new_feature))
+
+def test_filter_negword():
+    doc = [u'这', u'是', u'一本', u'坏坏坏',u'书',u'。'] 
+    neg_word_list = [u'坏坏坏',]
+    new_feature = filter_negword(doc, 'unicode', neg_word_list)
+    print " ".join(doc)
+    print >>sys.stderr, "neg_feature=%s" % (" ".join(new_feature))
+    
+def test_filter_posiword():
+    doc = [u'这', u'是', u'一本', u'美妆',u'减肥', u'瘦身', u'美白', u'攻略', u'书',u'。'] 
+    posi_word_list = [u'美容', u'减肥', u'瘦身', u'美白', u'攻略']
+    new_feature = filter_posiword(doc, 'unicode', posi_word_list)
+    print " ".join(doc)
+    print >>sys.stderr, "posi_feature=%s" % (" ".join(new_feature))    
+
+def test_gen_feature_word2vec():
+    doc = u"这本书是写如何化妆的。".encode('utf-8')
+    feature_text_list = feature_select_wordseg(doc)
+    if not feature_text_list:
+        print >>sys.stderr, "feature_text is none"
+        return False
+    word_vector = feature_numeralize_word2vec(feature_text_list)
+    print doc
+    print >>sys.stderr, word_vector
+
+def test_gen_feature_tfidf():
+    doc = u"这本书是写如何化妆的的一本书是化妆。".encode('utf-8')
+    feature_text_list = feature_select_wordseg(doc)
+    if not feature_text_list:
+        print >>sys.stderr, "feature_text is none"
+        return False
+    feature_dict = feature_numeralize_tfidf(feature_text_list)
+    print doc
+    print >>sys.stderr, ''.join(["%s:%s" %(k,v) for k,v in feature_dict.iteritems()])
+
+    doc = u"化妆化妆化妆和化妆品花王".encode('utf-8')
+    feature_text_list = feature_select_wordseg(doc)
+    if not feature_text_list:
+        print >>sys.stderr, "feature_text is none"
+        return False
+    feature_dict = feature_numeralize_tfidf(feature_text_list)
+    print doc
+    print >>sys.stderr, ''.join(["%s:%s" %(k,v) for k,v in feature_dict.iteritems()])    
+
+def test_feature_numeralize_word2vec():
+    doc1 = [u'这', u'是', u'一本', u'书'] #一般输入的list是unicode的
+    word_vector = feature_numeralize_word2vec(doc1)
+    print >>sys.stderr, word_vector
+
+    doc2 = [u'哈尔滨']
+    word_vector = feature_numeralize_word2vec(doc2)
+    print >>sys.stderr, word_vector
+
+def test_feature_numeralize_countV_fdocs():
+
+    docs = [u'这是一幅漫画画满了卡通人物风景画和人物画的结合的画卷',u'魅力指数是指美丽程度的评价'] #用于构建特征词典
+    new_doc = [u'一幅漫画湖水漫画'] #用于进行词频特征转化的新句子
+    normlized = 1 #进行归一化
+    word_feature_count = feature_numeralize_countV_fdocs(new_doc, 'unicode', docs, normlized)
+    print "new doc is :", new_doc[0]
+    print ''.join(["%s:%s " %(k,v) for k,v in word_feature_count.iteritems()])
+
+def test_feature_numeralize_countV_vocab():
+    user_vocabulary = {u'的':0,u'幅':5,u'湖水':12,u'指':6,u'了':1,u'和':4,u'美丽':15,u'这':17,u'画卷':11,u'卡通人物':3,u'程度':13,u'满':8,u'魅力指数':19,u'人物画':2,u'是':7,u'结合':14,u'风景画':18,u'漫画':9,u'评价':16,u'画':10}
+    #用户构建的词表
+    new_doc = [u'湖水湖水的魅力指数是多少'] #用于进行词频特征转化的新句子
+    normlized = 1 #进行归一化
+
+    word_feature_count = feature_numeralize_countV_vocab(new_doc, 'unicode', user_vocabulary, normlized)
+    
+    print "new doc is :", new_doc[0]
+    print ''.join(["%s:%s " %(k,v) for k,v in word_feature_count.iteritems()])
+    
+def test_feature_numeralize_topicmodel_fdocs():
+    docs = [u'10月24日晚间自拍达人',
+            u'昆凌将莅临现场与靓咔粉丝一同high翻在索尼',
+            u'魅力赏靓咔派对现场多组时尚',
+            u'舞团将上演风格各异的舞蹈幸运用户还可与',
+            u'昆凌现场互动最为靓丽的自拍达人',
+            u'还有机会赢取最佳造型奖整个活动会',
+            u'在索尼中国官网网页端和微信端进行直播',
+            u'有网友通过个人博客曝光了一组央视名嘴毕福剑女儿的照片',
+            u'由中国国际时装周组委会',
+            u'广东康氏实业有限公司',
+            u'共同主办东方宾利',
+            u'文化传媒承办的KGS谢家齐高级时装发布会',
+            u'在北京饭店金色大厅隆重举行',
+            u'继去年中国国际时装周KGS以花开的声音为主题的KGS谢家齐高级时装发布会',
+            u'在业界取得巨大反响后今年又再次绽放北京饭店金色大厅',]
+
+    new_doc = [u'在北京饭店金色大厅隆重举行']
+
+    topic_weight = feature_numeralize_topicmodel_fdocs(new_doc, 'unicode', docs, num_topics=7) 
+    print >>sys.stderr, "topic weight is:"
+    print >>sys.stderr, topic_weight
+
+def test_create_topicmodel_frommodelfile():
+    topic_model_file = './topicmodel_tmp.model'
+
+    new_doc = [u'在北京饭店金色大厅隆重举行']
+    topic_weight = feature_numeralize_topicmodel_fmodelfile(new_doc, topic_model_file) 
+    
+    print >>sys.stderr, new_doc[0]
+    print >>sys.stderr, "topic weight is:"
+    print >>sys.stderr, topic_weight    
+
+if __name__ == "__main__":
+
+    #test_feature_numeralize_countV_fdocs()
+    #test_feature_numeralize_countV_vocab()
+    #test_gen_feature_tfidf()
+    #test_gen_feature_word2vec()
+    #test_feature_select_wordseg()
+    #test_feature_numeralize_word2vec()
+    #test_filter_stopword()
+    #test_filter_negword()
+    #test_filter_posiword()
+    test_create_topicmodel_frommodelfile()
