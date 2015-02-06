@@ -1,0 +1,240 @@
+#!/bin/env python
+# -*- coding: UTF-8 -*-
+
+"""
+Copyright (c) 2014 Baidu.com, Inc. All Rights Reserved
+@author yangfan@baidu.com
+@brief
+    tfidf工具
+    实现特征词的tfidf向量转化
+"""
+import sys
+import os
+import nltk
+from sklearn.feature_extraction.text import CountVectorizer
+import scipy as sp
+
+from gensim import matutils
+from gensim import corpora
+from gensim.models.ldamodel import LdaModel
+from gensim.models.hdpmodel import HdpModel
+
+
+class TfidfVector(object):
+    def __init__(self, idf_file):
+
+        if not os.path.isfile(idf_file):
+            raise Exception('No such file: %s' % idf_file)
+            return None
+            
+        self.__idf_dict = {}
+
+        for line in open(idf_file):
+            word, id, idfvalue = line.split('\t')[:3]
+            word = word.decode('utf-8')
+            self.__idf_dict[word] = idfvalue        
+
+    def tfidf_value(self, word_feature_list, is_smooth=True):
+        """
+        返回 一个字典 tfidf_feature = {'word':tfidfvalue}
+        """
+        tfidf_feature = {}
+        word_fd = nltk.FreqDist(word_feature_list) 
+        for word in word_fd:
+            tf = word_fd[word]
+            if is_smooth:
+                idf = float(self.__idf_dict.get(word,0)) + float(1)
+            else:
+                idf = float(self.__idf_dict.get(word,0))
+            tfidf = tf * idf
+            tfidf_feature[word] = tfidf
+
+        return tfidf_feature
+
+class TfidfFactory(object):
+    """TfidfVector 工厂类 用于创建单例"""
+    def __init__(self):
+        self.__tfidf_vector = None
+
+    def create_tfidfvector(self):
+
+        """
+        创建单态模式的TfidfVector
+        @param idf_file_path:
+            idf 文件路径 用于创建 word idf值表
+        """
+        if self.__tfidf_vector is None:
+            path = sys.path[0]
+            idf_file_path = '%s/dict/idf_value_700w_test' % (path)
+
+            self.__tfidf_vector = TfidfVector(idf_file_path)
+        return self.__tfidf_vector
+
+class CountVector(object):
+
+    def __init__(self, wordseg_tokenize, use_fit_transform=False, docs=[], user_vocabulary={}):
+
+        def default_word_tokenize(text):
+            return text.split(' ')   #默认就用空格切词，其实可以改用百度的wordseg进行切词
+
+        if not wordseg_tokenize:
+            wordseg_tokenize = default_word_tokenize
+
+        self.__vectorizer = CountVectorizer(tokenizer=wordseg_tokenize) # 使用一个已有的word生成函数,TODO: 这里还可以增加词频范围变量控制
+
+        if use_fit_transform:
+            #使用fit_transform方法用docs来初始化vocabulary词典和CountVector
+            if not docs:
+                return None
+            self.__vectorizer.fit_transform(docs)
+        else:
+            #使用现成的vocabulary 词典进行初始化
+            if type(user_vocabulary) != dict or not user_vocabulary:
+                return None
+            self.__vectorizer.vocabulary_ = user_vocabulary
+    def get_vocabulary(self):
+        return self.__vectorizer.vocabulary_
+
+    def countvector_value(self, doc, normlized=1):
+        """
+        output将压缩矩阵转化成dict = {
+            key= wordid (在vocabulary中定义的wordid)
+            value = 词频
+        }
+        """
+        csr_doc_v = self.__vectorizer.transform(doc) #得到csr压缩行矩阵 array[countword0,countword1,countword2]
+        if normlized == 1:
+            csr_doc_v_norm = csr_doc_v/sp.linalg.norm(csr_doc_v.toarray()) #csr_doc_v 向量归一化
+        else:
+            csr_doc_v_norm = csr_doc_v
+
+        wordid_to_count= {}    
+        for i in csr_doc_v_norm.indices:
+            wordid_to_count[i] = csr_doc_v_norm[0,i]
+        return wordid_to_count
+
+class CountVectorFactory(object):
+    """ CountVector 工厂类 用于创建单例"""
+    def __init__(self):
+        self.__count_vector_frdocs = None
+        self.__count_vector_frvoca = None
+
+    def create_countvector_fromdocs(self, wordseg_tokenize, docs):
+        if self.__count_vector_frdocs is None:
+            use_fit_transform = True
+            if not docs: #默认一个文档
+                docs=[u'这是一幅漫画画满了卡通人物',u'魅力指数是指美丽程度的评价']
+            user_vocabulary={}
+            self.__count_vector_frdocs = CountVector(wordseg_tokenize, use_fit_transform, docs, user_vocabulary)
+        return self.__count_vector_frdocs
+
+    def create_countvector_fromvocabulary(self, wordseg_tokenize, user_vocabulary):
+        if self.__count_vector_frvoca is None:
+            use_fit_transform = False
+            if not user_vocabulary: #默认一个字典
+                user_vocabulary = {"aaa":0,"bbb":1,"ccc":2} # id必须从0开始
+            self.__count_vector_frvoca = CountVector(wordseg_tokenize, use_fit_transform, [], user_vocabulary)
+        return  self.__count_vector_frvoca
+
+class TopicModel(object):
+    """
+    num_topics 主题数 
+         TODO：这里可以增加LDA模型的alpha 参数
+    """
+    def __init__(self, load_model_from_file, wordseg_tokenize, model_file_name="", docs=[], num_topics = 5):
+        self.__countvector = None
+        self.__lda = None
+
+        def default_word_tokenize(text):
+            return text.split(' ')   #默认就用空格切词，其实可以改用百度的wordseg进行切词       
+        if not wordseg_tokenize:
+            wordseg_tokenize = default_word_tokenize
+
+        
+
+        if load_model_from_file == True:
+
+            if not os.path.isfile(model_file_name):
+                raise Exception('No such file: %s' % model_file_name)
+                return None
+
+            self.__lda = corpora.BleiCorpus.load('topicmodel_tmp.model')    
+            #load vocabulary词典
+            id2word = self.__lda.id2word
+            vocab = dict([(word, id) for id, word in id2word.iteritems()])
+
+            self.__countvector = CountVectorizer(tokenizer=wordseg_tokenize,vocabulary = vocab)
+
+                        
+        else:
+            self.__countvector = CountVectorizer(tokenizer=wordseg_tokenize)
+            X = self.__countvector.fit_transform(docs) #得到docs语料的CSR稀疏矩阵
+            vocab = self.__countvector.vocabulary_ #得到vocabulary 字典
+
+            id2word = dict([(id, word) for word, id in vocab.iteritems()])
+
+            self.__lda = LdaModel(matutils.Sparse2Corpus(X), num_topics=num_topics, id2word=id2word)
+            self.__lda.save("topicmodel_tmp.model") #save model
+            self.__lda.id2word
+
+
+    def topic_model_value(self, doc): #主题概率在0-1之间，不需要归一化默认是归一化的
+        """
+        返回 ["0":5,"4":3] value 主题index 权值
+        """
+        if not doc:
+            return None
+        print self.__countvector.vocabulary_
+        X_new = self.__countvector.transform(doc)
+
+        X_doc2bow = [(i, X_new[0,i]) for i in X_new.indices]
+
+        topic_weight= {}    
+        for ti_index,ti_weight in self.__lda[X_doc2bow]:
+            topic_weight[ti_index] = ti_weight
+        return topic_weight
+
+    def print_topics(self, num_topics=-1, num_words=30):
+
+        self.__lda.print_topics(num_topics=num_topics,num_words=num_words)      
+
+    def get_topics(self, num_topics=-1, num_words=30):
+        """ LDA topics  = [["0.15",u"我"],["0.12",u"你"],]"""
+
+        topics = self.__lda.show_topics(num_topics=num_topics,num_words=num_words,formatted=False)
+        print >>sys.stderr, "format string topics"
+        for ti, topic in enumerate(topics):
+            print >>sys.stderr, 'topic %d: %s' % (ti, ' '.join('%s/%.8f' % (t[1], t[0]) for t in topic)) 
+        return topics
+
+
+class TopicModelFactory(object):
+    """TopicModel 工厂类"""
+    def __init__(self):
+        self.__topic_model_fromdocs = None
+        self.__topic_model_fromfile = None
+
+    def create_topicmodel_fromdocs(self, wordseg_tokenize, docs=[], num_topics=5):
+
+        if self.__topic_model_fromdocs is None:
+            if not docs:
+                docs=[u'这是一幅漫画画满了卡通人物',u'魅力指数是指美丽程度的评价']
+
+            self.__topic_model_fromdocs = TopicModel(load_model_from_file=False, wordseg_tokenize=wordseg_tokenize, model_file_name="", docs=docs, num_topics=num_topics)
+        return self.__topic_model_fromdocs
+
+    def create_topicmodel_frommodelfile(self, wordseg_tokenize, model_file_name):
+
+        if self.__topic_model_fromfile is None:
+
+            if not model_file_name:
+                model_file_name = 'topicmodel_tmp.model'
+
+            self.__topic_model_fromfile = TopicModel(load_model_from_file=True, wordseg_tokenize=wordseg_tokenize, model_file_name=model_file_name, docs=[],num_topics=-1)
+        return self.__topic_model_fromfile
+            
+
+# 建议都使用SINGLETON_FACTORY来创建对应的so实例，否则单态模式不生效
+TFIDF_FACTORY = TfidfFactory()
+COUNTVECTOR_FACTORY = CountVectorFactory()
+TOPICMODEL_FACTORY = TopicModelFactory()
