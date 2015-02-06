@@ -2,11 +2,10 @@
 # -*- coding: UTF-8 -*-
 
 """
-Copyright (c) 2014 Baidu.com, Inc. All Rights Reserved
-@author yangfan@baidu.com
+@author Yang Fan 17767828@qq.com
 @brief
-    tfidf工具
-    实现特征词的tfidf向量转化
+    特征向量工具
+    
 """
 import sys
 import os
